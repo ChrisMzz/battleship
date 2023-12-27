@@ -1,14 +1,12 @@
 from __future__ import annotations
 import numpy as np
-import pandas as pd
-from scipy.ndimage import convolve
+from scipy.ndimage import convolve, label
 from skimage.io import imsave
 import tqdm
-import pdb
 
-mu_plc = 1/3
-mu_gss = 1/3
-mu_k = 1/3
+mu_plc = 1/30
+mu_gss = 1/30
+mu_k = 1/30
 
 
 
@@ -22,7 +20,7 @@ class Player:
                                   [1,0,1],
                                   [1,1,1]])/8
                  ):
-        
+        self.hits = []
         if parent1 == None and parent2 == None:
             if grid_size**2 < 2*sum(boats) or max(boats)>=grid_size: raise Exception('not enough space for boats')
             self.grid_size = grid_size
@@ -129,6 +127,9 @@ class Player:
         if other.boat_grid[line,column] == 1: self.guess_grid[line,column] = 2
         else: self.guess_grid[line,column]  = 1
         return (other.boat_grid[line,column] == 1), (line, column)
+    
+    def compute_consecutives(self): 
+        return label(np.array(self.hits))[1]
             
 
 def game(black:Player, white:Player):
@@ -136,44 +137,67 @@ def game(black:Player, white:Player):
     while True: # I'm sorry T.T
         hit, pos = white.guess(black)
         if hit:
+            white.hits.append(1)
             hit_grid = np.zeros((white.grid_size, white.grid_size))
             hit_grid[pos[0], pos[1]] = 1
-            hit_grid_a = convolve(hit_grid, black.a*np.array([[1,1,1],
+            hit_grid_a = convolve(hit_grid, black.a*np.array([[0,1,0],
                                                               [1,4,1],
-                                                              [1,1,1]])/12)
-            hit_grid_d = convolve(hit_grid, white.d*np.array([[1,1,1],
+                                                              [0,1,0]])/8)
+            hit_grid_d = convolve(hit_grid, white.d*np.array([[0,1,0],
                                                               [1,4,1],
-                                                              [1,1,1]])/12)
+                                                              [0,1,0]])/8)
             white.boat_gss_dstrb += hit_grid_a
             white.boat_gss_dstrb *= (white.boat_gss_dstrb>0)
             white.boat_gss_dstrb /= np.sum(white.boat_gss_dstrb)
             black.boat_plc_dstrb -= hit_grid_d
             black.boat_plc_dstrb *= (black.boat_plc_dstrb>0)
             black.boat_plc_dstrb /= np.sum(black.boat_plc_dstrb)
+        else:
+            white.hits.append(0)
+            hit_grid = np.zeros((white.grid_size, white.grid_size))
+            hit_grid[pos[0], pos[1]] = 1
+            hit_grid_a = convolve(hit_grid, white.a*np.array([[0,1,0],
+                                                              [1,4,1],
+                                                              [0,1,0]])/8)/4
+            white.boat_gss_dstrb -= hit_grid_a
+            white.boat_gss_dstrb *= (white.boat_gss_dstrb>0)
+            white.boat_gss_dstrb /= np.sum(white.boat_gss_dstrb)
         grid.append(np.c_[black.boat_grid+2*white.guess_grid+1, np.zeros((black.grid_size,black.grid_size)), white.boat_grid+2*black.guess_grid+1])
         if np.sum(white.guess_grid==2) == np.sum(black.boat_grid): return white, np.array(grid)
         
         hit, pos = black.guess(white)
         if hit:
+            black.hits.append(1)
             hit_grid = np.zeros((black.grid_size, black.grid_size))
             hit_grid[pos[0], pos[1]] = 1
-            hit_grid_a = convolve(hit_grid, black.a*np.array([[1,1,1],
+            hit_grid_a = convolve(hit_grid, black.a*np.array([[0,1,0],
                                                               [1,4,1],
-                                                              [1,1,1]])/12)
-            hit_grid_d = convolve(hit_grid, white.d*np.array([[1,1,1],
+                                                              [0,1,0]])/8)
+            hit_grid_d = convolve(hit_grid, white.d*np.array([[0,1,0],
                                                               [1,4,1],
-                                                              [1,1,1]])/12)
+                                                              [0,1,0]])/8)
             black.boat_gss_dstrb += hit_grid_a
             black.boat_gss_dstrb *= (black.boat_gss_dstrb>0)
             black.boat_gss_dstrb /= np.sum(black.boat_gss_dstrb)
             white.boat_plc_dstrb -= hit_grid_d
             white.boat_plc_dstrb *= (white.boat_plc_dstrb>0)
             white.boat_plc_dstrb /= np.sum(white.boat_plc_dstrb)
+        else:
+            black.hits.append(0)
+            hit_grid = np.zeros((black.grid_size, black.grid_size))
+            hit_grid[pos[0], pos[1]] = 1
+            hit_grid_a = convolve(hit_grid, black.a*np.array([[0,1,0],
+                                                              [1,4,1],
+                                                              [0,1,0]])/8)/4
+            black.boat_gss_dstrb -= hit_grid_a
+            black.boat_gss_dstrb *= (black.boat_gss_dstrb>0)
+            black.boat_gss_dstrb /= np.sum(black.boat_gss_dstrb)
         grid.append(np.c_[black.boat_grid+2*white.guess_grid+1, np.zeros((black.grid_size,black.grid_size)), white.boat_grid+2*black.guess_grid+1])
         if np.sum(black.guess_grid==2) == np.sum(white.boat_grid): return black, np.array(grid)
         
     
-
+def evaluate_game(grids):
+    pass
 
 
 if __name__=='__main__':
@@ -193,12 +217,14 @@ if __name__=='__main__':
         progress_bar.set_postfix({"average_length":np.mean([len(games[i]) for i in range(len(games))])})
         #pdb.set_trace()
         next_generation = []
-        for _ in range(4):
+        while len(next_generation) < pop_size:
             np.random.shuffle(winners)
             for black, white in zip(winners[:pop_size//4+1], winners[pop_size//4:]):
+                if black.compute_consecutives() + white.compute_consecutives() > 1.5*(len(black.boats) + len(white.boats)): continue
                 next_generation.append(Player(black, white))
+        next_generation = np.random.choice(next_generation, pop_size, replace=False)
     
-    imsave("replay_400.tif", game(*next_generation[:2])[1])
+    imsave("replay_AGAIN.tif", game(*next_generation[:2])[1])
     
     #pdb.set_trace()
 
